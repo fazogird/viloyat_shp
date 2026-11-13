@@ -1,0 +1,21 @@
+# ma'lumotlar va natijalar gitga kirmaydi (faqat kod, README va rasmlar/)
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sbn
+*.sbx
+*.qix
+*.lock
+*.xml
+*.gpkg
+*.xlsx
+~$*
+*.zip
+*.csv
+*.png
+!rasmlar/*.png
+# python
+__pycache__/
+*.pyc
