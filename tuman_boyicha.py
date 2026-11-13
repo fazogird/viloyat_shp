@@ -58,6 +58,12 @@ NOMLARNI_YANGILASH = False
 # Dala tumanga qancha qismi bilan tushgani (0..1) uchun ustun nomi; kerak bo'lmasa None.
 ULUSH_USTUNI = None
 
+# Shubhali: dala tumanga shu ulushdan kam qismi bilan tushsa (qolgani boshqa tumanda).
+SHUBHA_ULUSH = 0.9
+
+# Hisobot ro'yxatlarida ko'rsatiladigan ID ustuni (ASL da bo'lmasa — faqat FID).
+ID_USTUNI = "unique_id"
+
 # CHIQISH (va hisobot) allaqachon bor bo'lsa ustiga yozilsinmi.
 USTIGA_YOZ = False
 
@@ -237,6 +243,24 @@ def main() -> int:
     def ga(m: np.ndarray) -> float:
         return round(float(np.nansum(may[m])), 2)
 
+    # ---- shubhali dalalar: sabablari bilan ------------------------------------------------
+    sabablar = [[] for _ in range(n)]
+    for i in np.flatnonzero(~tumanli):
+        sabablar[i].append("hech qaysi tumanga tegmadi")
+    for i in np.flatnonzero(tumanli & (u_arr < SHUBHA_ULUSH)):
+        sabablar[i].append(f"tuman chegarasida: faqat {u_arr[i]:.0%} i shu tumanda")
+    for a_ust, (c_ust, cn, hol) in nom_hol.items():
+        for i in np.flatnonzero(hol == "farqli"):
+            sabablar[i].append(f"{a_ust} nomi farqli")
+        for i in np.flatnonzero(hol == "ASL da bo'sh"):
+            sabablar[i].append(f"{a_ust} bo'sh")
+    shubhali = np.array([bool(s) for s in sabablar])
+    sh_turlari = pd.Series([x.split(":")[0] for s in sabablar for x in s]).value_counts()
+
+    # nom ustunlari (chegaradagi): viloyat va tuman nomi qaysi ustunda
+    ch_vil = NOM_TEKSHIRUV.get("viloyat")
+    ch_tum = NOM_TEKSHIRUV.get("tuman")
+
     umumiy = [
         ("Sana", boshlanish, ""),
         ("— FAYLLAR —", "", ""),
@@ -266,6 +290,13 @@ def main() -> int:
     ]
     if notogri:
         umumiy.append(("Chegarada noto'g'ri geometriya", notogri, "hisob uchun tuzatildi (fayl o'zgarmadi)"))
+    umumiy += [
+        ("— SHUBHALI DALALAR —", "", ""),
+        ("Shubhali dalalar: soni", int(shubhali.sum()), "'Shubhali' varag'ida, har biri sababi bilan"),
+        ("Shubhali dalalar: maydoni, ga", ga(shubhali), ""),
+    ] + [(f"   {k}", int(v), "bitta dalada bir nechta sabab bo'lishi mumkin") for k, v in sh_turlari.items()] + [
+        ("Shubhali chegarasi (SHUBHA_ULUSH)", SHUBHA_ULUSH, "dala tumanga shundan kam qismi bilan tushsa"),
+    ]
     if nom_hol:
         umumiy.append(("— NOM TEKSHIRUVI —", "", ""))
         for a_ust, (c_ust, _, hol) in nom_hol.items():
@@ -285,15 +316,64 @@ def main() -> int:
     ]
     varaqlar = {"Umumiy": pd.DataFrame(umumiy, columns=["Ko'rsatkich", "Qiymat", "Izoh"])}
 
-    # Tumanlar: chegaradagi har tuman bo'yicha
-    tt = pd.DataFrame({"c": c_idx[tumanli], "may": np.nan_to_num(may[tumanli]), "kop": kop[tumanli]})
-    g = tt.groupby("c").agg(dala=("may", "size"), maydon=("may", "sum"), chegarada=("kop", "sum"))
-    tum = ch.drop(columns="geometry").iloc[g.index.values].reset_index(drop=True)
-    tum.insert(0, "Dalalar soni", g.dala.values)
-    tum.insert(1, "Maydoni, ga", g.maydon.round(2).values)
-    tum.insert(2, "Chegaradagi dalalar", g.chegarada.values)
-    tum = tum.sort_values(list(USTUNLAR)).reset_index(drop=True)
-    varaqlar["Tumanlar"] = tum
+    # Tumanlar: qaysi tumanga nechta dala tushdi
+    tt = pd.DataFrame({"c": c_idx[tumanli], "may": np.nan_to_num(may[tumanli]), "kop": kop[tumanli],
+                       "sh": shubhali[tumanli]})
+    if "tuman" in asl.columns:
+        tt["asl_tuman"] = asl["tuman"].fillna("(bo'sh)").astype(str).values[tumanli]
+    g = tt.groupby("c").agg(dala=("may", "size"), maydon=("may", "sum"), chegarada=("kop", "sum"),
+                            sh=("sh", "sum"))
+    tum = pd.DataFrame(index=range(len(g)))
+    if ch_vil:
+        tum["Viloyat (chegara)"] = ch[ch_vil].values[g.index.values]
+    if ch_tum:
+        tum["Tuman (chegara)"] = ch[ch_tum].values[g.index.values]
+    for eski, nom in USTUNLAR.items():
+        tum[nom] = ch[eski].values[g.index.values]
+    tum["Dalalar soni"] = g.dala.values
+    tum["Maydoni, ga"] = g.maydon.round(2).values
+    if "asl_tuman" in tt.columns:
+        nomlar = tt.groupby("c").asl_tuman.apply(
+            lambda s: ", ".join(f"{k} ({v})" for k, v in s.value_counts().items()))
+        tum["ASL dagi tuman nomi (dalalar)"] = nomlar.reindex(g.index).values
+    tum["2+ tuman chegarasida"] = g.chegarada.values
+    tum["Shubhali dalalar"] = g.sh.values
+    tum = tum.sort_values(list(USTUNLAR.values())).reset_index(drop=True)
+    jami = {c: "" for c in tum.columns}
+    jami[tum.columns[0]] = "JAMI"
+    for c in ("Dalalar soni", "2+ tuman chegarasida", "Shubhali dalalar"):
+        jami[c] = int(tum[c].sum())
+    jami["Maydoni, ga"] = round(float(tum["Maydoni, ga"].sum()), 2)
+    varaqlar["Tumanlar"] = pd.concat([tum, pd.DataFrame([jami])], ignore_index=True)
+
+    # Shubhali: har bir dala alohida qator
+    ix = np.flatnonzero(shubhali)
+    sd = pd.DataFrame({"FID (qator, 0 dan)": ix})
+    if ID_USTUNI and ID_USTUNI in asl.columns:
+        sd[ID_USTUNI] = asl[ID_USTUNI].values[ix]
+    for c in NOM_TEKSHIRUV:
+        sd[f"{c} (ASL)"] = asl[c].values[ix]
+    cix = np.where(c_idx[ix] >= 0, c_idx[ix], 0)
+    ok = tumanli[ix]
+    if ch_vil:
+        sd["Viloyat (chegara)"] = np.where(ok, ch[ch_vil].values[cix], None)
+    if ch_tum:
+        sd["Tuman (chegara)"] = np.where(ok, ch[ch_tum].values[cix], None)
+    for eski, nom in USTUNLAR.items():
+        sd[nom] = np.where(ok, ch[eski].values[cix], None)
+    sd["Shu tumanda, ulush"] = np.round(u_arr[ix], 3)
+    i2 = ikkinchi.reindex(ix)
+    ok2 = i2.c.notna().values
+    ikk = np.full(len(ix), "", dtype=object)
+    if ok2.any():
+        ikk[ok2] = ch[ch_tum or list(USTUNLAR)[-1]].values[i2.c.values[ok2].astype(int)]
+    sd["2-tuman"] = ikk
+    sd["2-tuman, ulush"] = np.round(i2.u.fillna(0).values, 3)
+    for c in ("maydon", "crop"):
+        if c in asl.columns:
+            sd[c] = asl[c].values[ix]
+    sd["Sabab"] = ["; ".join(sabablar[i]) for i in ix]
+    varaqlar["Shubhali"] = sd
 
     if nom_hol:
         rows = []
@@ -314,7 +394,7 @@ def main() -> int:
 
     def dala_jadval(ix: np.ndarray) -> pd.DataFrame:
         d = pd.DataFrame({"FID (qator, 0 dan)": ix})
-        for c in ("unique_id", "viloyat", "tuman", "maydon", "crop"):
+        for c in dict.fromkeys([ID_USTUNI or "", "viloyat", "tuman", "maydon", "crop"]):
             if c in asl.columns:
                 d[c] = asl[c].values[ix]
         return d
@@ -341,7 +421,7 @@ def main() -> int:
 
     try:
         hisobot.parent.mkdir(parents=True, exist_ok=True)
-        excel_yoz(hisobot, varaqlar, {"Ulushi", "2-tuman ulushi"})
+        excel_yoz(hisobot, varaqlar, {"Ulushi", "2-tuman ulushi", "Shu tumanda, ulush", "2-tuman, ulush"})
         log(f"Hisobot: {hisobot}")
     except PermissionError:
         log(f"XATO: hisobotni yozib bo'lmadi (Excel da ochiq bo'lishi mumkin): {hisobot}")

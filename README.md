@@ -355,6 +355,8 @@ tumanning atributlarini oladi.
 | `NOM_TEKSHIRUV` | `{ASL dagi ustun: chegaradagi ustun}`: `viloyat ↔ region_nam`, `tuman ↔ district` |
 | `NOMLARNI_YANGILASH` | `True` — natijada `viloyat` / `tuman` chegaradagi rasmiy nomlar bilan almashadi (standart `False`) |
 | `ULUSH_USTUNI` | dala tumanga qancha qismi bilan tushgani (0–1) ustuni; kerak bo'lmasa `None` |
+| `SHUBHA_ULUSH` | dala tumanga shundan kam qismi bilan tushsa — shubhali (standart 0.9) |
+| `ID_USTUNI` | hisobot ro'yxatlarida ko'rsatiladigan ID (`unique_id`) |
 | `USTIGA_YOZ` | natija bor bo'lsa ustiga yozilsinmi |
 
 > Shapefile ustun nomi 10 belgigacha: `district_id` (11) yozilmaydi, shuning uchun `distrct_id`.
@@ -376,15 +378,22 @@ tumanning atributlarini oladi.
 
    Kodlar baribir fazoviy beriladi — nom tekshiruvi faqat xabar beradi. Farqli dalalar odatda tuman
    chegarasidan o'tib ketgan kichik dalalar yoki ASL dagi eski nomlar.
-3. **Tekshiruv.** ASL va CHEGARA fayllari xeshi o'zgarmagan; natijada dala soni, geometriya, CRS va
+3. **Shubhali dalalar** — quyidagilardan kamida bittasi bo'lsa:
+   - dala tumanga `SHUBHA_ULUSH` (0.9) dan kam qismi bilan tushgan — qolgani boshqa tumanda;
+   - tuman (yoki viloyat) nomi **farqli** yoki ASL da bo'sh;
+   - dala hech qaysi tumanga tegmagan.
+
+   "Qo'shimchasiz mos" (`Z` ↔ `Z shahri`) shubhali hisoblanmaydi.
+4. **Tekshiruv.** ASL va CHEGARA fayllari xeshi o'zgarmagan; natijada dala soni, geometriya, CRS va
    ASL ustunlari bir xil.
 
 ### Excel hisobot
 
 | Varaq | Nima bor |
 |---|---|
-| **Umumiy** | fayllar, CRS; dalalar soni va maydoni; tumanga tushdi / 2+ tuman chegarasida / hech qaysi tumanga tegmadi; nom tekshiruvi (mos, qo'shimchasiz mos, farqli); tekshiruv |
-| **Tumanlar** | dalasi bor har tuman: kodlar, nomlar, dalalar soni, maydoni, chegaradagi dalalar |
+| **Umumiy** | fayllar, CRS; shp da nechta dala (soni, maydoni); tumanga tushdi / 2+ tuman chegarasida / hech qaysi tumanga tegmadi; **shubhali dalalar** soni va sabablari; nom tekshiruvi (mos, qo'shimchasiz mos, farqli); tekshiruv |
+| **Tumanlar** | qaysi tumanga nechta dala tushdi: viloyat va tuman (chegara), `region_id`, `distrct_id`, dalalar soni, maydoni, ASL da qanday nom bilan yozilgani, chegaradagi va shubhali dalalar; oxirida JAMI |
+| **Shubhali** | har shubhali dala alohida qator: `unique_id`, ASL dagi `viloyat` / `tuman`, chegara bo'yicha viloyat / tuman, kodlar, shu tumandagi ulush, 2-tuman va ulushi, `maydon`, `crop`, **sabab** |
 | **Nom farqlari** | ASL dagi nom ↔ chegaradagi nom juftliklari, holati, dalalar soni va maydoni |
 | **Chegaradagi dalalar** | 2+ tumanga tegadigan dalalar: olingan tuman va ulushi, 2-tuman va ulushi |
 | **Tegmaganlar** | hech qaysi tuman ichida bo'lmagan dalalar (bo'lsa) |
