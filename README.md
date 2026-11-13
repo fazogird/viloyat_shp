@@ -1,14 +1,15 @@
 # viloyat_shp — ekin yerlariga nomenklatura va fermer ma'lumotini o'tkazish
 
-Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Ikki skript bor:
+Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Uchta skript bor:
 
 | Skript | Nima qiladi |
 |---|---|
 | [`atribut_otkazish.py`](atribut_otkazish.py) | to'liq atributli **manba** shp dan bizning ekin yerlariga `kontur_raq`, `real_name`, `real_n1`, `real_n2` va fermer nomini fazoviy moslab o'tkazadi |
 | [`qoshnidan_toldirish.py`](qoshnidan_toldirish.py) | manbaga tegmagani uchun **bo'sh qolgan** ekin yerlarini yonidagi to'lgan dalalardan to'ldiradi |
+| [`id_boyicha_qoshish.py`](id_boyicha_qoshish.py) | boshqa (yordamchi) fayldan **unique_id bo'yicha** kerakli ustunlarni qo'shadi (masalan `uw3_m3 … uw10_m3`, `uwt_m3`) |
 
-Ikkalasi ham kirish fayllarini o'zgartirmaydi (fayl xeshi bilan tekshiriladi), natijani yangi shp
-ga va Excel hisobotga yozadi.
+Hammasi kirish fayllarini o'zgartirmaydi (fayl xeshi bilan tekshiriladi), natijani yangi shp ga va
+Excel hisobotga yozadi.
 
 ## O'rnatish
 
@@ -26,6 +27,7 @@ muhit faollashtirilmagan holda ham ishlashi uchun.
 |---|---|
 | `atribut_otkazish.py` | 1-qadam: manbadan o'tkazish |
 | `qoshnidan_toldirish.py` | 2-qadam: qo'shnidan to'ldirish |
+| `id_boyicha_qoshish.py` | 3-qadam: ID bo'yicha ustun qo'shish |
 | `muhit.py` | conda yo'llarini sozlash (numpy dan oldin import qilinadi) |
 | `run.bat` | Windows da ishga tushirish |
 | `environment.yml` | conda muhiti |
@@ -40,6 +42,9 @@ flowchart LR
     P1 --> B["X_viloyati_v2.shp<br/>+ hisobot.xlsx"]
     B --> P2["qoshnidan_toldirish.py<br/>bufer 1→10 m, ierarxik"]
     P2 --> C["X_viloyati_v3.shp<br/>+ hisobot.xlsx"]
+    C --> P3["id_boyicha_qoshish.py<br/>unique_id bo'yicha"]
+    Y["X_viloyati_suv.shp<br/>(yordamchi: uw*_m3 …)"] --> P3
+    P3 --> D["X_viloyati_v4.shp<br/>+ hisobot.xlsx"]
 ```
 
 Har skriptda kirish/chiqish fayl boshidagi **FOYDALANUVCHI SOZLAMALARI** blokida qo'lda yoziladi.
@@ -54,6 +59,11 @@ CHIQISH = r"D:\natija\X_viloyati_v2.shp"       # yangi fayl
 # qoshnidan_toldirish.py
 KIRISH  = r"D:\natija\X_viloyati_v2.shp"       # 1-qadam natijasi
 CHIQISH = r"D:\natija\X_viloyati_v3.shp"       # yangi fayl
+
+# id_boyicha_qoshish.py
+ASL       = r"D:\natija\X_viloyati_v3.shp"     # 2-qadam natijasi
+YORDAMCHI = r"D:\malumot\X_viloyati_suv.shp"   # ustunlar olinadigan fayl
+CHIQISH   = r"D:\natija\X_viloyati_v4.shp"     # yangi fayl
 ```
 
 Keyin repo papkasidan ishga tushiriladi:
@@ -61,6 +71,7 @@ Keyin repo papkasidan ishga tushiriladi:
 ```bash
 .\run.bat atribut_otkazish.py
 .\run.bat qoshnidan_toldirish.py
+.\run.bat id_boyicha_qoshish.py
 ```
 
 ---
@@ -244,6 +255,72 @@ dalalardan ancha uzoqda (o'nlab metr) bo'ladi.
 1. `toldi_usul = kelishmadi` va `qoshni_qisman` — qo'shnilar kelishmagan joylar.
 2. `qoshni_m >= 8` — uzoqdan topilgan (sinovda ~81–86% to'g'ri).
 3. `toldi_usul = bosh` — qo'lda to'ldirish kerak (yaqinida to'lgan dala yo'q).
+
+---
+
+## 3-qadam. `id_boyicha_qoshish.py` — ID bo'yicha ustun qo'shish
+
+Bizning faylga (odatda 2-qadam natijasi) boshqa fayldan kerakli ustunlarni **unique_id bo'yicha**
+olib keladi. Masalan suv hajmi ustunlari `uw3_m3 … uw10_m3`, `uwt_m3` alohida faylda turadi.
+Bu yerda fazoviy moslash yo'q — faqat ID mosligi.
+
+### Sozlamalar
+
+| O'zgaruvchi | Ma'nosi |
+|---|---|
+| `ASL` | ma'lumot qabul qiladigan shp (o'zgarmaydi) |
+| `YORDAMCHI` | ustunlar olinadigan fayl: shp, gpkg, dbf, csv yoki xlsx (faqat o'qiladi) |
+| `CHIQISH` | natija shp (yangi fayl) |
+| `HISOBOT` | Excel hisobot; `None` — `CHIQISH` yonida `<nomi>_hisobot.xlsx` |
+| `ID_ASL` / `ID_YORDAMCHI` | ID ustuni nomi har bir faylda (har xil bo'lishi mumkin, masalan `unique_id` va `uniqueid`) |
+| `ID_TOZALASH` | IDlarni solishtirishdan oldin tozalash: kichik harf; bo'sh joy, `-`, `{`, `}` olib tashlanadi |
+| `USTUNLAR` | `{yordamchidagi nomi: natijadagi nomi}` — kerakli ustunlar, nomini o'zgartirish ham mumkin (shp: 10 belgigacha) |
+| `XLSX_VARAQ` / `CSV_AJRATUVCHI` | yordamchi xlsx yoki csv bo'lsa |
+| `USTIGA_YOZ` | natija bor bo'lsa ustiga yozilsinmi |
+
+Masalan:
+
+```python
+ID_ASL = "unique_id"
+ID_YORDAMCHI = "uniqueid"
+USTUNLAR = {
+    "uw3_m3": "uw3_m3",
+    "uw4_m3": "uw4_m3",
+    # ...
+    "uw10_m3": "uw10_m3",
+    "uwt_m3": "uwt_m3",
+}
+```
+
+### Qoida
+
+1. **ID tozalash.** `ID_TOZALASH = True` bo'lsa, `5E474CF4-C7CE-…` va `5e474cf4c7ce…` bir xil
+   hisoblanadi. Fayllardagi IDlar o'zgarmaydi — faqat solishtirish uchun.
+2. **Bog'lash.** ASL dagi har qatorga yordamchida shu ID li qatorning qiymatlari yoziladi. ID
+   topilmasa — yangi ustunlar bo'sh qoladi. ASL ning qatorlari, ustunlari va geometriyasi o'zgarmaydi.
+3. **Takrorlar.** Yordamchida bir ID bir necha marta uchrasa — birinchi qatori olinadi. Qiymatlari
+   farqli takrorlar hisobotning **Takrorlar** varag'ida ko'rsatiladi.
+4. **Nom to'qnashuvi.** Natijadagi nom ASL da allaqachon bo'lsa, skript to'xtaydi — `USTUNLAR` da
+   boshqa nom bering (masalan `"yield": "yield_2"`).
+5. **Tekshiruv.** ASL va YORDAMCHI fayllari xeshi o'zgarmagan; natijada qator soni, geometriya,
+   CRS va ASL ustunlari bir xil.
+
+### Excel hisobot
+
+| Varaq | Nima bor |
+|---|---|
+| **Umumiy** | fayllar, ID ustunlari; ASL: qatorlar (va maydoni), noyob ID, bo'sh ID; YORDAMCHI: qatorlar, noyob ID, bo'sh ID, takrorlar; **ID orqali o'tdi** (noyob ID va qator, maydoni), **o'tmadi**, yordamchida ortiqcha IDlar; tekshiruv |
+| **Ustunlar** | har ustun: qiymat yozildi, ID topildi-yu qiymat bo'sh, ID topilmadi, to'ldi % |
+| **Tumanlar** | har tuman: qatorlar, ID orqali o'tdi, o'tmadi, % |
+| **O'tmaganlar** | ID topilmagan qatorlar (FID, ID, tuman, maydon, sabab) |
+| **Ortiqcha IDlar** | yordamchida bor, ASL da yo'q IDlar |
+| **Takrorlar** | yordamchida qiymatlari farqli takror IDlar |
+
+X viloyat uchun "Umumiy" varag'i shunday o'qiladi: *ASL da N ta noyob ID*, *YORDAMCHI da M ta
+noyob ID*, *ID orqali o'tdi: N₁ (Y₁ ga)*, *o'tmadi: N₂ (Y₂ ga)*, *yordamchida ortiqcha: M₁*.
+
+> Agar "o'tdi" 0 bo'lsa — ikki faylning ID tizimi boshqa (masalan yordamchi o'z IDlarini
+> ishlatadi). Bunda ID ustunini to'g'ri tanlang yoki IDlari mos fayldan foydalaning.
 
 ---
 
