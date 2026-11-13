@@ -9,8 +9,8 @@ Qoida:
   4. Nom tekshiruvi (NOM_TEKSHIRUV): ASL dagi viloyat / tuman nomlari chegaradagi region_nam /
      district bilan solishtiriladi (apostrof turi va katta-kichik harf hisobga olinmaydi):
        mos           — nomlar bir xil;
-       qo'shimchasiz — farq faqat "tumani" / "shahri" so'zida (masalan "Guliston" va
-                        "Guliston shahri"); "Guliston tumani" va "Guliston shahri" esa farqli;
+       qo'shimchasiz — farq faqat "tumani" / "shahri" so'zida (masalan "Z" va
+                        "Z shahri"); "Z tumani" va "Z shahri" esa farqli;
        farqli        — boshqa tuman.
      NOMLARNI_YANGILASH = True bo'lsa natijada viloyat / tuman chegaradagi nomlar bilan almashadi.
   5. Natija CHIQISH ga yoziladi: ASL ning qatorlari, geometriyasi, CRS i va boshqa ustunlari
@@ -105,7 +105,7 @@ def nom_holati(asl_nom, chegara_nom) -> str:
     if a == c:
         return "mos"
     a0, c0 = QOSHIMCHA.sub("", a), QOSHIMCHA.sub("", c)
-    # faqat bittasida qo'shimcha bo'lsa (Guliston ~ Guliston shahri); ikkalasida har xil bo'lsa — farqli
+    # faqat bittasida qo'shimcha bo'lsa (Z ~ Z shahri); ikkalasida har xil bo'lsa — farqli
     if a0 == c0 and (a0 == a or c0 == c):
         return "qo'shimchasiz mos"
     return "farqli"
