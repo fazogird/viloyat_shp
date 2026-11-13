@@ -1,12 +1,13 @@
 # viloyat_shp — ekin yerlariga nomenklatura va fermer ma'lumotini o'tkazish
 
-Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Uchta skript bor:
+Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). To'rtta skript bor:
 
 | Skript | Nima qiladi |
 |---|---|
 | [`atribut_otkazish.py`](atribut_otkazish.py) | to'liq atributli **manba** shp dan bizning ekin yerlariga `kontur_raq`, `real_name`, `real_n1`, `real_n2` va fermer nomini fazoviy moslab o'tkazadi |
 | [`qoshnidan_toldirish.py`](qoshnidan_toldirish.py) | manbaga tegmagani uchun **bo'sh qolgan** ekin yerlarini yonidagi to'lgan dalalardan to'ldiradi |
 | [`id_boyicha_qoshish.py`](id_boyicha_qoshish.py) | boshqa (yordamchi) fayldan **unique_id bo'yicha** kerakli ustunlarni qo'shadi (masalan `uw3_m3 … uw10_m3`, `uwt_m3`) |
+| [`tuman_boyicha.py`](tuman_boyicha.py) | **tuman chegaralari** bo'yicha har bir dalaga viloyat va tuman kodini beradi (`parent_cod → region_id`, `code → distrct_id`) va nomlarni tekshiradi |
 
 Hammasi kirish fayllarini o'zgartirmaydi (fayl xeshi bilan tekshiriladi), natijani yangi shp ga va
 Excel hisobotga yozadi.
@@ -28,6 +29,7 @@ muhit faollashtirilmagan holda ham ishlashi uchun.
 | `atribut_otkazish.py` | 1-qadam: manbadan o'tkazish |
 | `qoshnidan_toldirish.py` | 2-qadam: qo'shnidan to'ldirish |
 | `id_boyicha_qoshish.py` | 3-qadam: ID bo'yicha ustun qo'shish |
+| `tuman_boyicha.py` | 4-qadam: tuman chegarasi bo'yicha viloyat / tuman kodi |
 | `muhit.py` | conda yo'llarini sozlash (numpy dan oldin import qilinadi) |
 | `run.bat` | Windows da ishga tushirish |
 | `environment.yml` | conda muhiti |
@@ -45,7 +47,13 @@ flowchart LR
     C --> P3["id_boyicha_qoshish.py<br/>unique_id bo'yicha"]
     Y["X_viloyati_suv.shp<br/>(yordamchi: uw*_m3 …)"] --> P3
     P3 --> D["X_viloyati_v4.shp<br/>+ hisobot.xlsx"]
+    D --> P4["tuman_boyicha.py<br/>tuman chegarasi bo'yicha"]
+    T["tuman_chegaralari.shp<br/>(parent_cod, code, nomlar)"] --> P4
+    P4 --> E["X_viloyati_v5.shp<br/>+ hisobot.xlsx"]
 ```
+
+Qadamlar mustaqil: kerakli qadamni o'tkazib yuborish yoki boshqa tartibda ishlatish mumkin —
+faqat `KIRISH` / `ASL` ga oldingi natijani bering.
 
 Har skriptda kirish/chiqish fayl boshidagi **FOYDALANUVCHI SOZLAMALARI** blokida qo'lda yoziladi.
 Masalan, X viloyat uchun:
@@ -64,6 +72,11 @@ CHIQISH = r"D:\natija\X_viloyati_v3.shp"       # yangi fayl
 ASL       = r"D:\natija\X_viloyati_v3.shp"     # 2-qadam natijasi
 YORDAMCHI = r"D:\malumot\X_viloyati_suv.shp"   # ustunlar olinadigan fayl
 CHIQISH   = r"D:\natija\X_viloyati_v4.shp"     # yangi fayl
+
+# tuman_boyicha.py
+ASL     = r"D:\natija\X_viloyati_v4.shp"       # 3-qadam natijasi
+CHEGARA = r"D:\malumot\tuman_chegaralari.shp"  # tuman chegaralari
+CHIQISH = r"D:\natija\X_viloyati_v5.shp"       # yangi fayl
 ```
 
 Keyin repo papkasidan ishga tushiriladi:
@@ -72,6 +85,7 @@ Keyin repo papkasidan ishga tushiriladi:
 .\run.bat atribut_otkazish.py
 .\run.bat qoshnidan_toldirish.py
 .\run.bat id_boyicha_qoshish.py
+.\run.bat tuman_boyicha.py
 ```
 
 ---
@@ -321,6 +335,59 @@ noyob ID*, *ID orqali o'tdi: N₁ (Y₁ ga)*, *o'tmadi: N₂ (Y₂ ga)*, *yordam
 
 > Agar "o'tdi" 0 bo'lsa — ikki faylning ID tizimi boshqa (masalan yordamchi o'z IDlarini
 > ishlatadi). Bunda ID ustunini to'g'ri tanlang yoki IDlari mos fayldan foydalaning.
+
+---
+
+## 4-qadam. `tuman_boyicha.py` — tuman chegarasi bo'yicha kodlar
+
+Tuman chegaralari faylidan har bir dalaga viloyat va tuman kodini beradi: tuman ichidagi dala o'sha
+tumanning atributlarini oladi.
+
+### Sozlamalar
+
+| O'zgaruvchi | Ma'nosi |
+|---|---|
+| `ASL` | ekin yerlar shp (o'zgarmaydi) |
+| `CHEGARA` | tuman chegaralari shp (faqat o'qiladi) |
+| `CHIQISH` | natija shp (yangi fayl) |
+| `HISOBOT` | Excel hisobot; `None` — `CHIQISH` yonida `<nomi>_hisobot.xlsx` |
+| `USTUNLAR` | `{chegaradagi nomi: natijadagi nomi}`: `parent_cod → region_id`, `code → distrct_id` |
+| `NOM_TEKSHIRUV` | `{ASL dagi ustun: chegaradagi ustun}`: `viloyat ↔ region_nam`, `tuman ↔ district` |
+| `NOMLARNI_YANGILASH` | `True` — natijada `viloyat` / `tuman` chegaradagi rasmiy nomlar bilan almashadi (standart `False`) |
+| `ULUSH_USTUNI` | dala tumanga qancha qismi bilan tushgani (0–1) ustuni; kerak bo'lmasa `None` |
+| `USTIGA_YOZ` | natija bor bo'lsa ustiga yozilsinmi |
+
+> Shapefile ustun nomi 10 belgigacha: `district_id` (11) yozilmaydi, shuning uchun `distrct_id`.
+
+### Qoida
+
+1. **Fazoviy.** Dala eng ko'p maydon bilan qaysi tuman ichida yotsa, o'sha tumanning kodlari olinadi
+   (hisob UTM da, metrda). Ikki tuman chegarasidagi dala — kattaroq qismi qaysi tumanda bo'lsa.
+   Chegara faylidagi noto'g'ri (invalid) geometriyalar hisob uchun tuzatiladi, fayl o'zgarmaydi.
+2. **Nom tekshiruvi.** `viloyat` / `tuman` nomlari chegaradagi `region_nam` / `district` bilan
+   solishtiriladi. Apostrof turi (`'` va `‘`), katta-kichik harf va "shahar / shahri",
+   "tuman / tumani" farqi hisobga olinmaydi:
+
+   | Holat | Misol |
+   |---|---|
+   | **mos** | `Y tumani` ↔ `Y tumani`; `Z shahar` ↔ `Z shahri` |
+   | **qo'shimchasiz mos** | `Z` ↔ `Z shahri` — faqat bittasida "tumani / shahri" yo'q |
+   | **farqli** | `Z tumani` ↔ `Z shahri` (ikki xil hudud) yoki boshqa tuman nomi |
+
+   Kodlar baribir fazoviy beriladi — nom tekshiruvi faqat xabar beradi. Farqli dalalar odatda tuman
+   chegarasidan o'tib ketgan kichik dalalar yoki ASL dagi eski nomlar.
+3. **Tekshiruv.** ASL va CHEGARA fayllari xeshi o'zgarmagan; natijada dala soni, geometriya, CRS va
+   ASL ustunlari bir xil.
+
+### Excel hisobot
+
+| Varaq | Nima bor |
+|---|---|
+| **Umumiy** | fayllar, CRS; dalalar soni va maydoni; tumanga tushdi / 2+ tuman chegarasida / hech qaysi tumanga tegmadi; nom tekshiruvi (mos, qo'shimchasiz mos, farqli); tekshiruv |
+| **Tumanlar** | dalasi bor har tuman: kodlar, nomlar, dalalar soni, maydoni, chegaradagi dalalar |
+| **Nom farqlari** | ASL dagi nom ↔ chegaradagi nom juftliklari, holati, dalalar soni va maydoni |
+| **Chegaradagi dalalar** | 2+ tumanga tegadigan dalalar: olingan tuman va ulushi, 2-tuman va ulushi |
+| **Tegmaganlar** | hech qaysi tuman ichida bo'lmagan dalalar (bo'lsa) |
 
 ---
 
