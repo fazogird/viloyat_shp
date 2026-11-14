@@ -275,8 +275,9 @@ dalalardan ancha uzoqda (o'nlab metr) bo'ladi.
 ## 3-qadam. `id_boyicha_qoshish.py` — ID bo'yicha ustun qo'shish
 
 Bizning faylga (odatda 2-qadam natijasi) boshqa fayldan kerakli ustunlarni **unique_id bo'yicha**
-olib keladi. Masalan suv hajmi ustunlari `uw3_m3 … uw10_m3`, `uwt_m3` alohida faylda turadi.
-Bu yerda fazoviy moslash yo'q — faqat ID mosligi.
+olib keladi. Masalan suv hajmi ustunlari `uw3_m3 … uw10_m3`, `uwt_m3` yoki fermer nomi va INN
+alohida faylda turadi. Ustun ASL da bo'lmasa — yangi ustun qo'shiladi; bor, lekin to'liq bo'lmasa —
+**faqat bo'sh kataklari to'ldiriladi**. Bu yerda fazoviy moslash yo'q — faqat ID mosligi.
 
 ### Sozlamalar
 
@@ -289,21 +290,33 @@ Bu yerda fazoviy moslash yo'q — faqat ID mosligi.
 | `ID_ASL` / `ID_YORDAMCHI` | ID ustuni nomi har bir faylda (har xil bo'lishi mumkin, masalan `unique_id` va `uniqueid`) |
 | `ID_TOZALASH` | IDlarni solishtirishdan oldin tozalash: kichik harf; bo'sh joy, `-`, `{`, `}` olib tashlanadi |
 | `USTUNLAR` | `{yordamchidagi nomi: natijadagi nomi}` — kerakli ustunlar, nomini o'zgartirish ham mumkin (shp: 10 belgigacha) |
+| `BOR_USTUN` | natijadagi nom ASL da bor bo'lsa: `"toldir"` — faqat bo'sh kataklar (standart), `"almashtir"` — yordamchida qiymat bor joyda almashtirish, `"xato"` — to'xtash |
+| `BIRGA` | birga to'ldiriladigan ustunlar guruhi, masalan `[["full_name", "tax_number"]]` |
+| `NOM_SOLISHTIRISH` | guruhda nomlarni solishtirish: `"yumshoq"` (standart) yoki `"qattiq"` |
 | `XLSX_VARAQ` / `CSV_AJRATUVCHI` | yordamchi xlsx yoki csv bo'lsa |
 | `USTIGA_YOZ` | natija bor bo'lsa ustiga yozilsinmi |
 
-Masalan:
+Masalan, suv hajmi (yangi ustunlar):
 
 ```python
 ID_ASL = "unique_id"
 ID_YORDAMCHI = "uniqueid"
 USTUNLAR = {
     "uw3_m3": "uw3_m3",
-    "uw4_m3": "uw4_m3",
     # ...
-    "uw10_m3": "uw10_m3",
     "uwt_m3": "uwt_m3",
 }
+```
+
+Fermer ma'lumoti (ASL dagi to'liq bo'lmagan `full_name`, `tax_number` ni to'ldirish):
+
+```python
+USTUNLAR = {
+    "farmer_nam": "full_name",
+    "farmer_inn": "tax_number",
+}
+BOR_USTUN = "toldir"
+BIRGA = [["full_name", "tax_number"]]
 ```
 
 ### Qoida
@@ -314,18 +327,38 @@ USTUNLAR = {
    topilmasa — yangi ustunlar bo'sh qoladi. ASL ning qatorlari, ustunlari va geometriyasi o'zgarmaydi.
 3. **Takrorlar.** Yordamchida bir ID bir necha marta uchrasa — birinchi qatori olinadi. Qiymatlari
    farqli takrorlar hisobotning **Takrorlar** varag'ida ko'rsatiladi.
-4. **Nom to'qnashuvi.** Natijadagi nom ASL da allaqachon bo'lsa, skript to'xtaydi — `USTUNLAR` da
-   boshqa nom bering (masalan `"yield": "yield_2"`).
-5. **Tekshiruv.** ASL va YORDAMCHI fayllari xeshi o'zgarmagan; natijada qator soni, geometriya,
-   CRS va ASL ustunlari bir xil.
+4. **ASL da bor ustun** (`BOR_USTUN = "toldir"`). Faqat ASL dagi **bo'sh kataklar** yordamchidan
+   to'ldiriladi; bor qiymat o'zgarmaydi (yordamchida boshqacha bo'lsa ham — hisobotda sanaladi).
+   Qiymat ASL ustuni turiga keltiriladi: matn ustunga `308337301.0` emas, `308337301` yoziladi.
+   Yangi nom bilan alohida ustun kerak bo'lsa — `USTUNLAR` da boshqa nom bering (masalan
+   `"yield": "yield_2"`).
+5. **Birga to'ldirish** (`BIRGA`). Fermer nomi va INN bitta fermerga tegishli. Bo'sh `tax_number`
+   faqat ASL dagi `full_name` bo'sh yoki yordamchidagi nom bilan **bir fermer** bo'lsa to'ldiriladi —
+   aks holda bir fermer nomi yoniga boshqa fermer INN i tushib qolardi. Bunday qatorlar
+   hisobotning **Guruh mos emas** varag'ida.
+
+   `NOM_SOLISHTIRISH = "yumshoq"` da quyidagilar bir fermer hisoblanadi:
+
+   | ASL | Yordamchi | Nimasi farq qiladi |
+   |---|---|---|
+   | `"A AGRO" MCHJ` | `"A AGRO" MAS'ULIYATI CHEKLANGAN JAMIYAT` | yuridik shakl |
+   | `"B" FX` | `ФЕРМЕРСКОЕ ХОЗЯЙСТВО "B"` | yuridik shakl, til |
+   | `"C D" FX` | `C D ФЕРМЕР ХУЖАЛИГИ` (kirillda) | kirill / lotin |
+   | `"E F O'G'LI" FX` | `ФХ "E F O`G`L` (kesilgan) | apostrof, kesilgan nom |
+
+   `Y tumani hokimiyati` ↔ `"Z" FX` — boshqa fermer, INN yozilmaydi.
+6. **Tekshiruv.** ASL va YORDAMCHI fayllari xeshi o'zgarmagan (fayl boshqa dasturda, masalan ArcGIS
+   da tahrir qilinayotgan bo'lsa — skript buni aytadi); natijada qator soni, geometriya va CRS bir xil;
+   ASL dagi bor qiymatlar o'zgarmagan.
 
 ### Excel hisobot
 
 | Varaq | Nima bor |
 |---|---|
 | **Umumiy** | fayllar, ID ustunlari; ASL: qatorlar (va maydoni), noyob ID, bo'sh ID; YORDAMCHI: qatorlar, noyob ID, bo'sh ID, takrorlar; **ID orqali o'tdi** (noyob ID va qator, maydoni), **o'tmadi**, yordamchida ortiqcha IDlar; tekshiruv |
-| **Ustunlar** | har ustun: qiymat yozildi, ID topildi-yu qiymat bo'sh, ID topilmadi, to'ldi % |
-| **Tumanlar** | har tuman: qatorlar, ID orqali o'tdi, o'tmadi, % |
+| **Ustunlar** | har ustun: yangi yoki ASL da bor; avval bo'sh edi, to'ldirildi, bo'sh qoldi, avvaldan bor (o'zgarmadi), bor qiymat yordamchidan farqli, guruh mos emas, to'ldi % |
+| **Tumanlar** | har tuman: qatorlar, ID orqali o'tdi, o'tmadi, %; har to'ldirilgan ustun bo'yicha nechta katak |
+| **Guruh mos emas** | `BIRGA` sharti bajarilmagan qatorlar: `unique_id`, tuman, ASL dagi va yordamchidagi nom / INN yonma-yon |
 | **O'tmaganlar** | ID topilmagan qatorlar (FID, ID, tuman, maydon, sabab) |
 | **Ortiqcha IDlar** | yordamchida bor, ASL da yo'q IDlar |
 | **Takrorlar** | yordamchida qiymatlari farqli takror IDlar |
