@@ -105,6 +105,31 @@ YANGI = ["kad_raqam", "eski_kad", "egasi", "egasi_turi", "inn", "jshshir", "inn_
          "manba", "takror", "tekshir"]
 
 
+# Ko'rib chiqish sabablari: kod -> (ustuvorlik, qisqa sabab, nima qilish kerak). 1 — eng muhim.
+SABABLAR = {
+    "eski_raqam": (1, "B dan qo'shildi, lekin raqami A da eski raqam (OLDCADNUM)",
+                   "A dagi shu eski raqamli (yangi raqamli) parsel bilan xaritada solishtiring. Bir yer bo'lsa — "
+                   "bu B qatorini o'chiring (takror); boshqa yer bo'lsa — qoldiring."),
+    "qisman": (2, "B parseli A bilan qisman ustma-ust — natijaga QO'SHILMAGAN",
+               "Xaritada B va A chegarasini solishtiring. A da yo'q qismi haqiqiy yer bo'lsa — qo'lda qo'shing; "
+               "aks holda hech narsa qilmang."),
+    "takror": (2, "Kadastr raqami takrorlanadi",
+               "Bir xil raqamli qatorlarni solishtiring: bir xil yer bo'lsa — bittasini qoldiring; boshqa yer "
+               "bo'lsa — to'g'ri raqamini aniqlang."),
+    "ega_farqli": (3, "Egasi A (yangi) va B (eski) da farqli",
+                   "Natijada A dagi (yangi) egasi yozilgan. Yer yangi egaga o'tganini hujjat (DOC_UID) bo'yicha "
+                   "tasdiqlang; xato bo'lsa — egasini tuzating."),
+    "b_inn_yoq": (3, "B dan qo'shildi, INN / JShShIR topilmadi",
+                  "Egasining INN (yuridik shaxs, fermer) yoki JShShIR (jismoniy shaxs) ini qo'lda kiriting."),
+    "b_inn_nom": (4, "B dan qo'shildi, INN / JShShIR nom bo'yicha topildi",
+                  "INN / JShShIR shu tumandagi bir xil nomli ega bo'yicha olingan — to'g'riligini tekshiring."),
+    "b_qoshildi": (4, "B dan qo'shildi (eski ma'lumot, A da yo'q)",
+                   "Parsel hali ham shu egada ekanini tekshiring; yer qaytarib olingan bo'lsa — o'chiring."),
+    "geom_b": (5, "A da geometriya yo'q edi, chegara B dan olindi",
+               "Chegara eski bo'lishi mumkin — kerak bo'lsa yangisini chizing."),
+}
+
+
 def kalit(s: pd.Series) -> pd.Series:
     """Kadastr raqami kaliti: bo'shliqsiz, katta harf; bo'sh -> None."""
     t = s.astype(object).map(matnga)
@@ -304,8 +329,28 @@ def main() -> int:
     nat["takror"] = (k_all.notna() & k_all.duplicated(keep=False)).astype(int).values
     nat["maydon_ga"] = np.round(shapely.area(shapely.make_valid(nat.geometry.to_crs(hisob_crs).values)) / 1e4, 4)
     nat = nat[YANGI + asl_ust + ["geometry"]]
+
+    # ---- ko'rib chiqish sabablari (shp dagi "tekshir" ustuni va Excel dagi "Ko'rib chiqish") ----
+    mn = nat["manba"].astype(str).values
+    b_qator = mn == "B (eski)"
+    inn_yoq = pd.Series(nat["inn"]).isna().values & pd.Series(nat["jshshir"]).isna().values
+    belgilar = {
+        "eski_raqam": b_qator & pd.Series(nat["tekshir"]).astype(str).str.contains("eski raqam").values,
+        "takror": nat["takror"].values == 1,
+        "ega_farqli": (nat["ega_ozgar"] == "ha").values,
+        "b_inn_yoq": b_qator & inn_yoq,
+        "b_inn_nom": b_qator & (nat["inn_manba"] == "nom (A)").values,
+        "b_qoshildi": b_qator,
+        "geom_b": pd.Series(mn).str.contains("geometriya B").values,
+    }
+    sabab_qator = [[] for _ in range(len(nat))]
+    for kod, mask in belgilar.items():
+        for ix in np.flatnonzero(mask):
+            sabab_qator[ix].append(kod)
+    nat["tekshir"] = ["; ".join(SABABLAR[k][1] for k in s)[:254] for s in sabab_qator]  # shp: 254 belgigacha
     log(f"Natija: {len(nat)} parsel; buzuq geometriya tuzatildi {int(notogri.sum())}; "
-        f"takror kadastr qatorlari {int(nat['takror'].sum())} ({time.time() - t0:.0f} s)")
+        f"takror kadastr qatorlari {int(nat['takror'].sum())}; ko'rib chiqish kerak "
+        f"{sum(bool(s) for s in sabab_qator)} parsel ({time.time() - t0:.0f} s)")
 
     # ---- yozish va tekshiruv -----------------------------------------------------------
     chiqish.parent.mkdir(parents=True, exist_ok=True)
@@ -349,10 +394,10 @@ def main() -> int:
         ("Faqat A da", int(len(a_kalit - set(B["_k"].dropna()))), "yangi yoki qayta ro'yxatdan o'tgan parsellar"),
         ("Faqat B da", len(fb), ""),
         ("   A bilan qoplangan (qayta ro'yxat) — qo'shilmadi", len(qayta), "'Qayta ro'yxat' varag'ida"),
-        ("   qisman qoplangan — qo'shilmadi", len(qisman), "'Ko'rib chiqish' varag'ida"),
+        ("   qisman qoplangan — qo'shilmadi", len(qisman), "'Ko'rib chiqish' varag'ida (2-varaq)"),
         ("   A da yo'q — qo'shildi", len(qosh), "'B dan qo'shildi' varag'ida"),
         ("      shundan raqami A da eski raqam (OLDCADNUM)", int(eski_raqam_a_da.sum()),
-         "joyi siljigan bo'lishi mumkin — tekshir ustunida belgilangan"),
+         "takror bo'lishi mumkin — 'Ko'rib chiqish' varag'ida"),
         ("— NATIJA —", "", ""),
         ("Parsellar: jami", len(nat), f"{round(float(np.nansum(ga)), 2)} ga"),
         ("   A dan", int(m_a.sum()), f"{round(float(np.nansum(ga[m_a])), 2)} ga"),
@@ -367,12 +412,48 @@ def main() -> int:
         ("Geometriya B dan olindi", int(geom_b.sum()), ""),
         ("Buzuq geometriya tuzatildi", int(notogri.sum()), ""),
         ("Takror kadastr raqamli qatorlar", int(nat["takror"].sum()), "takror = 1"),
+    ]
+    # Ko'rib chiqish: sabablar bo'yicha soni (qisman qoplangan B parsellari natijada yo'q — alohida)
+    soni = {k: int(m.sum()) for k, m in belgilar.items()}
+    soni["qisman"] = len(qisman)
+    umumiy.append(("— KO'RIB CHIQISH KERAK (2-varaq 'Ko'rib chiqish') —", "", ""))
+    for kod, (ust_r, matn, nima) in sorted(SABABLAR.items(), key=lambda x: x[1][0]):
+        if soni.get(kod):
+            umumiy.append((f"{ust_r}. {matn}", soni[kod], nima))
+    umumiy += [
         ("— TEKSHIRUV —", "", ""),
         ("A o'zgarmadi (fayl xeshi bir xil)", ha(a_ok), ""),
         ("B o'zgarmadi (fayl xeshi bir xil)", ha(b_ok), ""),
         ("Natijada parsel soni = A + B dan qo'shilgan", ha(soni_ok), ""),
     ]
     varaqlar = {"Umumiy": pd.DataFrame(umumiy, columns=["Ko'rsatkich", "Qiymat", "Izoh"])}
+
+    # 2-varaq: hamma ko'rib chiqiladigan parsellar bitta jadvalda
+    kq = np.flatnonzero([bool(s) for s in sabab_qator])
+    ust_min = [min(SABABLAR[k][0] for k in sabab_qator[i]) for i in kq]
+    kr = pd.DataFrame({
+        "Ustuvorlik": ust_min,
+        "Sabab": [" | ".join(SABABLAR[k][1] for k in sabab_qator[i]) for i in kq],
+        "Nima qilish kerak": [" | ".join(SABABLAR[k][2] for k in sabab_qator[i]) for i in kq],
+        "Natijada bor": "ha",
+        "kad_raqam": nat["kad_raqam"].values[kq], "tuman": nat["tuman"].values[kq],
+        "egasi": nat["egasi"].values[kq], "egasi_turi": nat["egasi_turi"].values[kq],
+        "inn": nat["inn"].values[kq], "jshshir": nat["jshshir"].values[kq],
+        "B dagi egasi": nat["b_egasi"].values[kq], "manba": nat["manba"].values[kq],
+        "maydon_ga": nat["maydon_ga"].values[kq], "A bilan qoplangan": np.nan,
+    })
+    if len(qisman):
+        b_ga_q = shapely.area(bg[qisman]) / 1e4
+        kq2 = pd.DataFrame({
+            "Ustuvorlik": SABABLAR["qisman"][0], "Sabab": SABABLAR["qisman"][1],
+            "Nima qilish kerak": SABABLAR["qisman"][2], "Natijada bor": "yo'q",
+            "kad_raqam": B[B_KAD].values[qisman], "tuman": B[B_TUMAN].values[qisman],
+            "egasi": B[B_EGASI].values[qisman], "egasi_turi": None, "inn": None, "jshshir": None,
+            "B dagi egasi": B[B_EGASI].values[qisman], "manba": "B (natijada yo'q)",
+            "maydon_ga": np.round(b_ga_q, 4), "A bilan qoplangan": np.round(pd.Series(qop, index=fb).reindex(qisman).values, 3),
+        })
+        kr = pd.concat([kr, kq2], ignore_index=True)
+    varaqlar["Ko'rib chiqish"] = kr.sort_values(["Ustuvorlik", "tuman", "kad_raqam"]).reset_index(drop=True)
 
     t = pd.DataFrame({"Tuman": pd.Series(nat["tuman"]).fillna("(bo'sh)").values, "jami": 1, "ga": np.nan_to_num(ga),
                       "a": m_a, "b": m_b, "ega": pd.Series(nat["egasi"]).notna().values,
@@ -413,8 +494,6 @@ def main() -> int:
         d["A kadastr (yangi)"] = lst.reindex(qayta).values
         d["Eski raqami A da (OLDCADNUM)"] = ["ha" if k in eski_set else "" for k in B["_k"].values[qayta]]
         varaqlar["Qayta ro'yxat"] = d
-    if len(qisman):
-        varaqlar["Ko'rib chiqish"] = b_jadval(qisman, qop_s.reindex(qisman).values)
     if len(q):
         d = b_jadval(qosh, qop_s.reindex(qosh).values)
         d["INN topildi"] = q["inn"].values
