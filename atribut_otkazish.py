@@ -72,8 +72,26 @@ USTIGA_YOZ = False
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import muhit  # noqa: F401,E402  (GDAL_DATA/PROJ va DLL yo'llari, numpy dan oldin)
+# ---- conda muhiti: 'activate' qilinmagan bo'lsa ham ishlashi uchun (numpy dan OLDIN) ----
+# python.exe to'g'ridan-to'g'ri chaqirilsa Library\bin PATH da bo'lmaydi va boshqa joydagi mos kelmaydigan
+# DLL yuklanadi (numpy / GDAL 0xc06d007f bilan qulaydi). Oddiy (conda emas) Python da hech narsa qilmaydi.
+import os  # noqa: E402
+
+_p = sys.prefix
+_dirs = [_p, os.path.join(_p, "Library", "mingw-w64", "bin"), os.path.join(_p, "Library", "usr", "bin"),
+         os.path.join(_p, "Library", "bin"), os.path.join(_p, "Scripts"), os.path.join(_p, "bin")]
+os.environ["PATH"] = os.pathsep.join([d for d in _dirs if os.path.isdir(d)] + [os.environ.get("PATH", "")])
+for _d in _dirs:
+    if os.path.isdir(_d) and hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(_d)
+        except OSError:
+            pass
+for _var, _sub in (("GDAL_DATA", "gdal"), ("PROJ_LIB", "proj"), ("PROJ_DATA", "proj")):
+    _d = os.path.join(_p, "Library", "share", _sub)
+    if os.path.isdir(_d):
+        os.environ[_var] = _d
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 import hashlib  # noqa: E402
 import time  # noqa: E402

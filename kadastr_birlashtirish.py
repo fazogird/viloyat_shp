@@ -82,8 +82,26 @@ USTIGA_YOZ = False
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import muhit  # noqa: F401,E402  (GDAL_DATA/PROJ va DLL yo'llari, numpy dan oldin)
+# ---- conda muhiti: 'activate' qilinmagan bo'lsa ham ishlashi uchun (numpy dan OLDIN) ----
+# python.exe to'g'ridan-to'g'ri chaqirilsa Library\bin PATH da bo'lmaydi va boshqa joydagi mos kelmaydigan
+# DLL yuklanadi (numpy / GDAL 0xc06d007f bilan qulaydi). Oddiy (conda emas) Python da hech narsa qilmaydi.
+import os  # noqa: E402
+
+_p = sys.prefix
+_dirs = [_p, os.path.join(_p, "Library", "mingw-w64", "bin"), os.path.join(_p, "Library", "usr", "bin"),
+         os.path.join(_p, "Library", "bin"), os.path.join(_p, "Scripts"), os.path.join(_p, "bin")]
+os.environ["PATH"] = os.pathsep.join([d for d in _dirs if os.path.isdir(d)] + [os.environ.get("PATH", "")])
+for _d in _dirs:
+    if os.path.isdir(_d) and hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(_d)
+        except OSError:
+            pass
+for _var, _sub in (("GDAL_DATA", "gdal"), ("PROJ_LIB", "proj"), ("PROJ_DATA", "proj")):
+    _d = os.path.join(_p, "Library", "share", _sub)
+    if os.path.isdir(_d):
+        os.environ[_var] = _d
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 import time  # noqa: E402
 import warnings  # noqa: E402
@@ -94,8 +112,124 @@ import pandas as pd  # noqa: E402
 import pyogrio  # noqa: E402
 import shapely  # noqa: E402
 
-from atribut_otkazish import crs_matn, excel_yoz, foiz, log, shp_ochir, shp_xesh  # noqa: E402
-from id_boyicha_qoshish import bir_xil, matnga, nom_yadrosi  # noqa: E402
+import hashlib  # noqa: E402
+
+# ---- yordamchi funksiyalar (fayl boshqa fayllarsiz ishlashi uchun shu yerda) --------------------
+SHP_QOSHIMCHA = (".shp", ".shx", ".dbf", ".prj", ".cpg", ".qix", ".sbn", ".sbx")
+
+
+def log(msg: str) -> None:
+    satr = f"[{time.strftime('%H:%M:%S')}] {msg}"
+    kod = getattr(sys.stdout, "encoding", None) or "utf-8"
+    # Windows konsoli (cp1251 va h.k.) chiqara olmaydigan belgilar "?" bo'ladi — skript to'xtamaydi
+    print(satr.encode(kod, errors="replace").decode(kod, errors="replace"), flush=True)
+
+
+def shp_xesh(asos: Path) -> dict[str, str]:
+    """shp ning hamma yon fayllari xeshi — fayl o'zgarmaganini tekshirish uchun."""
+    out = {}
+    for q in SHP_QOSHIMCHA:
+        p = asos.with_suffix(q)
+        if p.exists():
+            out[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
+def shp_ochir(asos: Path) -> None:
+    for q in SHP_QOSHIMCHA:
+        p = asos.with_suffix(q)
+        if p.exists():
+            p.unlink()
+
+
+def crs_matn(crs) -> str:
+    """EPSG:3857 (WGS 84 / Pseudo-Mercator) ko'rinishida."""
+    if crs is None:
+        return "yo'q"
+    return f"{crs.to_string()} ({crs.name})"
+
+
+def foiz(qism: float, jami: float) -> float:
+    return round(qism / jami, 4) if jami else 0.0
+
+
+def excel_yoz(yol: Path, varaqlar: dict[str, pd.DataFrame], foiz_ustunlar: set[str]) -> None:
+    """Varaqlarni Excel ga yozish: qalin sarlavha, ustun kengligi, muzlatilgan birinchi qator."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    sarlavha_fon = PatternFill("solid", fgColor="DDEBF7")
+    with pd.ExcelWriter(yol, engine="openpyxl") as w:
+        for nom, df in varaqlar.items():
+            df.to_excel(w, sheet_name=nom, index=False)
+            ws = w.sheets[nom]
+            for c in ws[1]:
+                c.font = Font(bold=True)
+                c.fill = sarlavha_fon
+                c.alignment = Alignment(wrap_text=True, vertical="center")
+            ws.freeze_panes = "A2"
+            for j, ustun in enumerate(df.columns, start=1):
+                harf = ws.cell(row=1, column=j).column_letter
+                uz = max([len(str(ustun))] + [len(str(v)) for v in df[ustun].head(500)])
+                ws.column_dimensions[harf].width = min(max(uz + 2, 10), 70)
+                if ustun in foiz_ustunlar:
+                    for qator in ws.iter_rows(min_row=2, min_col=j, max_col=j):
+                        qator[0].number_format = "0.0%"
+import re  # noqa: E402
+
+# ---- nomlarni yumshoq solishtirish (fermer / tashkilot nomlari) ----------------------------------
+NOM_SOLISHTIRISH = "yumshoq"  # "yumshoq" — yuridik shakl, kirill/lotin, apostrof, kesilgan nom farqisiz
+KIRILL = {"А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D", "Е": "E", "Ё": "YO", "Ж": "J", "З": "Z", "И": "I",
+          "Й": "Y", "К": "K", "Л": "L", "М": "M", "Н": "N", "О": "O", "П": "P", "Р": "R", "С": "S", "Т": "T",
+          "У": "U", "Ф": "F", "Х": "X", "Ц": "TS", "Ч": "CH", "Ш": "SH", "Щ": "SH", "Ъ": "", "Ы": "I", "Ь": "",
+          "Э": "E", "Ю": "YU", "Я": "YA", "Ў": "O", "Қ": "Q", "Ғ": "G", "Ҳ": "H"}
+YURIDIK_SHAKL = re.compile("|".join([
+    r"MAS.?ULIYATI\s+CHEKLANGAN\s+JAMIYATI?", r"OBSHESTVO\s+S\s+OGRANICHENNOY\s+OTVETSTVENNOSTYU",
+    r"MASULIYATI\s+CHEKLANGAN\s+JAMIYATI?", r"FERMER\s+XO.?JALIGI", r"FERMER\s+XUJALIGI",
+    r"FERMERSKOE\s+XOZYAYSTVO", r"DEHQON\s+XO.?JALIGI", r"DEXKANSKOE\s+XOZYAYSTVO", r"XUSUSIY\s+KORXONA(SI)?",
+    r"CHASTNOE\s+PREDPRIYATIE", r"QISHLOQ\s+XO.?JALIK\s+KOOPERATIVI?", r"\bMCHJ\b", r"\bOOO\b",
+    r"\bF\s*/?\s*X\b", r"\bD\s*X\b", r"\bXK\b", r"\bCHP\b", r"\bQK\b", r"\bAJ\b"]))
+
+
+def matnga(v):
+    """Qiymatni matnga: 308337301.0 -> "308337301"; bo'sh -> None."""
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return None
+    if isinstance(v, (float, np.floating)) and float(v).is_integer():
+        return str(int(v))
+    s = str(v).strip()
+    return s or None
+
+
+def solishtir(v) -> str:
+    """Bir xilligini tekshirish uchun: katta harf, faqat harf va raqam."""
+    m = matnga(v)
+    return "" if m is None else "".join(ch for ch in m.upper() if ch.isalnum())
+
+
+def nom_yadrosi(v) -> str:
+    """Nomning "yadrosi": kirill -> lotin, apostrofsiz, yuridik shaklsiz, H/X bir xil, faqat harf va raqam."""
+    m = matnga(v)
+    if m is None:
+        return ""
+    t = "".join(KIRILL.get(ch, ch) for ch in m.upper())
+    t = re.sub(r"[`'‘’ʻʼ´]", "", t)
+    t = YURIDIK_SHAKL.sub(" ", t).replace("H", "X")
+    return "".join(ch for ch in t if ch.isalnum())
+
+
+def bir_xil(x, y) -> bool:
+    """Ikki qiymat bir narsami: aynan yoki yumshoq (nom yadrosi bir xil / kesilgan boshi, 8+ belgi va 60%)."""
+    if solishtir(x) == solishtir(y):
+        return True
+    if NOM_SOLISHTIRISH != "yumshoq":
+        return False
+    a, b = nom_yadrosi(x), nom_yadrosi(y)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    q, u = sorted((a, b), key=len)
+    return len(q) >= 8 and len(q) >= 0.6 * len(u) and u.startswith(q)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pyogrio")
 

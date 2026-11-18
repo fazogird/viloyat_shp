@@ -22,8 +22,12 @@ conda env create -f environment.yml
 ```
 
 `run.bat` avval `viloyat_shp` muhitini, bo'lmasa `fenologiya` muhitini ishlatadi (`conda activate`
-shart emas). `muhit.py` conda ning `Library\bin`, `GDAL_DATA`, `PROJ_LIB` yo'llarini sozlaydi —
-muhit faollashtirilmagan holda ham ishlashi uchun.
+shart emas). Yoki muhitni faollashtirib, to'g'ridan-to'g'ri: `python kadastr_birlashtirish.py`.
+
+> **Har bir skript mustaqil.** Bitta `.py` faylning o'zini boshqa kompyuterga ko'chirsangiz ham
+> ishlaydi — boshqa skriptlar ham, `muhit.py` ham kerak emas: yordamchi funksiyalar va conda yo'llarini
+> sozlash (`Library\bin`, `GDAL_DATA`, `PROJ_LIB`) har bir faylning o'zida. Kerak bo'lgani faqat
+> Python paketlari (`environment.yml`) va fayl boshidagi sozlamalarda shu kompyuterdagi yo'llar.
 
 | Fayl | Vazifasi |
 |---|---|
@@ -32,7 +36,7 @@ muhit faollashtirilmagan holda ham ishlashi uchun.
 | `id_boyicha_qoshish.py` | 3-qadam: ID bo'yicha ustun qo'shish |
 | `tuman_boyicha.py` | 4-qadam: tuman chegarasi bo'yicha viloyat / tuman kodi |
 | `kadastr_birlashtirish.py` | kadastr: ikki kadastr faylini birlashtirish (ekin yerlarga bog'lashdan oldin) |
-| `muhit.py` | conda yo'llarini sozlash (numpy dan oldin import qilinadi) |
+| `muhit.py` | conda yo'llarini sozlash (alohida modul sifatida; skriptlar unga bog'liq emas — xuddi shu kod har bir skriptning ichida) |
 | `run.bat` | Windows da ishga tushirish |
 | `environment.yml` | conda muhiti |
 | `rasmlar/` | README rasmlari |

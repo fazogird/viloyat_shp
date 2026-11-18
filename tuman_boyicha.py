@@ -72,8 +72,26 @@ USTIGA_YOZ = False
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import muhit  # noqa: F401,E402  (GDAL_DATA/PROJ va DLL yo'llari, numpy dan oldin)
+# ---- conda muhiti: 'activate' qilinmagan bo'lsa ham ishlashi uchun (numpy dan OLDIN) ----
+# python.exe to'g'ridan-to'g'ri chaqirilsa Library\bin PATH da bo'lmaydi va boshqa joydagi mos kelmaydigan
+# DLL yuklanadi (numpy / GDAL 0xc06d007f bilan qulaydi). Oddiy (conda emas) Python da hech narsa qilmaydi.
+import os  # noqa: E402
+
+_p = sys.prefix
+_dirs = [_p, os.path.join(_p, "Library", "mingw-w64", "bin"), os.path.join(_p, "Library", "usr", "bin"),
+         os.path.join(_p, "Library", "bin"), os.path.join(_p, "Scripts"), os.path.join(_p, "bin")]
+os.environ["PATH"] = os.pathsep.join([d for d in _dirs if os.path.isdir(d)] + [os.environ.get("PATH", "")])
+for _d in _dirs:
+    if os.path.isdir(_d) and hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(_d)
+        except OSError:
+            pass
+for _var, _sub in (("GDAL_DATA", "gdal"), ("PROJ_LIB", "proj"), ("PROJ_DATA", "proj")):
+    _d = os.path.join(_p, "Library", "share", _sub)
+    if os.path.isdir(_d):
+        os.environ[_var] = _d
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 import re  # noqa: E402
 import time  # noqa: E402
@@ -83,7 +101,68 @@ import pandas as pd  # noqa: E402
 import pyogrio  # noqa: E402
 import shapely  # noqa: E402
 
-from atribut_otkazish import crs_matn, excel_yoz, foiz, log, shp_ochir, shp_xesh  # noqa: E402
+import hashlib  # noqa: E402
+
+# ---- yordamchi funksiyalar (fayl boshqa fayllarsiz ishlashi uchun shu yerda) --------------------
+SHP_QOSHIMCHA = (".shp", ".shx", ".dbf", ".prj", ".cpg", ".qix", ".sbn", ".sbx")
+
+
+def log(msg: str) -> None:
+    satr = f"[{time.strftime('%H:%M:%S')}] {msg}"
+    kod = getattr(sys.stdout, "encoding", None) or "utf-8"
+    # Windows konsoli (cp1251 va h.k.) chiqara olmaydigan belgilar "?" bo'ladi — skript to'xtamaydi
+    print(satr.encode(kod, errors="replace").decode(kod, errors="replace"), flush=True)
+
+
+def shp_xesh(asos: Path) -> dict[str, str]:
+    """shp ning hamma yon fayllari xeshi — fayl o'zgarmaganini tekshirish uchun."""
+    out = {}
+    for q in SHP_QOSHIMCHA:
+        p = asos.with_suffix(q)
+        if p.exists():
+            out[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
+def shp_ochir(asos: Path) -> None:
+    for q in SHP_QOSHIMCHA:
+        p = asos.with_suffix(q)
+        if p.exists():
+            p.unlink()
+
+
+def crs_matn(crs) -> str:
+    """EPSG:3857 (WGS 84 / Pseudo-Mercator) ko'rinishida."""
+    if crs is None:
+        return "yo'q"
+    return f"{crs.to_string()} ({crs.name})"
+
+
+def foiz(qism: float, jami: float) -> float:
+    return round(qism / jami, 4) if jami else 0.0
+
+
+def excel_yoz(yol: Path, varaqlar: dict[str, pd.DataFrame], foiz_ustunlar: set[str]) -> None:
+    """Varaqlarni Excel ga yozish: qalin sarlavha, ustun kengligi, muzlatilgan birinchi qator."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    sarlavha_fon = PatternFill("solid", fgColor="DDEBF7")
+    with pd.ExcelWriter(yol, engine="openpyxl") as w:
+        for nom, df in varaqlar.items():
+            df.to_excel(w, sheet_name=nom, index=False)
+            ws = w.sheets[nom]
+            for c in ws[1]:
+                c.font = Font(bold=True)
+                c.fill = sarlavha_fon
+                c.alignment = Alignment(wrap_text=True, vertical="center")
+            ws.freeze_panes = "A2"
+            for j, ustun in enumerate(df.columns, start=1):
+                harf = ws.cell(row=1, column=j).column_letter
+                uz = max([len(str(ustun))] + [len(str(v)) for v in df[ustun].head(500)])
+                ws.column_dimensions[harf].width = min(max(uz + 2, 10), 70)
+                if ustun in foiz_ustunlar:
+                    for qator in ws.iter_rows(min_row=2, min_col=j, max_col=j):
+                        qator[0].number_format = "0.0%"
 
 QOSHIMCHA = re.compile(r"\s+(tumani|shahri|viloyati|tuman|shahar|viloyat)$")
 APOSTROF = re.compile(r"[\u2018\u2019\u02bb\u02bc`'\u00b4]")
