@@ -1,6 +1,6 @@
 # viloyat_shp — ekin yerlariga nomenklatura va fermer ma'lumotini o'tkazish
 
-Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Beshta skript bor:
+Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Oltita skript bor:
 
 | Skript | Nima qiladi |
 |---|---|
@@ -9,6 +9,7 @@ Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Beshta skript bor:
 | [`id_boyicha_qoshish.py`](id_boyicha_qoshish.py) | boshqa (yordamchi) fayldan **unique_id bo'yicha** kerakli ustunlarni qo'shadi (masalan `uw3_m3 … uw10_m3`, `uwt_m3`) |
 | [`tuman_boyicha.py`](tuman_boyicha.py) | **tuman chegaralari** bo'yicha har bir dalaga viloyat va tuman kodini beradi (`parent_cod → region_id`, `code → distrct_id`) va nomlarni tekshiradi |
 | [`kadastr_birlashtirish.py`](kadastr_birlashtirish.py) | ikki **kadastr** faylini (yangi, lekin to'liq emas + eski, lekin to'liqroq) bitta to'liq kadastr fayliga birlashtiradi: kadastr raqami, egasi, INN, JShShIR |
+| [`kadastrdan_ekinga.py`](kadastrdan_ekinga.py) | birlashgan **kadastrdan ekin yerlarga** fermer nomi, INN, kadastr raqami va yer turini o'tkazadi (dala ichidagi parsellar ega bo'yicha yig'iladi) |
 
 Hammasi kirish fayllarini o'zgartirmaydi (fayl xeshi bilan tekshiriladi), natijani yangi shp ga va
 Excel hisobotga yozadi.
@@ -36,6 +37,7 @@ shart emas). Yoki muhitni faollashtirib, to'g'ridan-to'g'ri: `python kadastr_bir
 | `id_boyicha_qoshish.py` | 3-qadam: ID bo'yicha ustun qo'shish |
 | `tuman_boyicha.py` | 4-qadam: tuman chegarasi bo'yicha viloyat / tuman kodi |
 | `kadastr_birlashtirish.py` | kadastr: ikki kadastr faylini birlashtirish (ekin yerlarga bog'lashdan oldin) |
+| `kadastrdan_ekinga.py` | kadastr: birlashgan kadastrdan ekin yerlarga egasi, INN, kadastr raqami, yer turi |
 | `muhit.py` | conda yo'llarini sozlash (alohida modul sifatida; skriptlar unga bog'liq emas — xuddi shu kod har bir skriptning ichida) |
 | `run.bat` | Windows da ishga tushirish |
 | `environment.yml` | conda muhiti |
@@ -56,6 +58,9 @@ flowchart LR
     D --> P4["tuman_boyicha.py<br/>tuman chegarasi bo'yicha"]
     T["tuman_chegaralari.shp<br/>(parent_cod, code, nomlar)"] --> P4
     P4 --> E["X_viloyati_v5.shp<br/>+ hisobot.xlsx"]
+    E --> P5["kadastrdan_ekinga.py<br/>ega bo'yicha ulush"]
+    KB["X_kadastr_birlashgan.shp<br/>(kadastr_birlashtirish.py)"] --> P5
+    P5 --> F["X_viloyati_v6.shp<br/>+ kadastr_hisobot.xlsx"]
 ```
 
 Qadamlar mustaqil: kerakli qadamni o'tkazib yuborish yoki boshqa tartibda ishlatish mumkin —
@@ -496,6 +501,82 @@ ma'lumot. Odatda ikki fayl bo'ladi:
 | **B dan qo'shildi** | A da yo'q, B dan qo'shilgan parsellar, topilgan INN / JShShIR |
 | **Egasi farqli** | kadastr raqami bir xil, egasi A va B da boshqa |
 | **Takrorlar** | takror kadastr raqamlari |
+
+> Natijada shaxsiy ma'lumot (JShShIR, F.I.Sh) bor — faylni faqat ichki ishda ishlating.
+
+---
+
+## Kadastrdan ekinga. `kadastrdan_ekinga.py` — egasi, INN, kadastr raqami, yer turi
+
+Birlashgan kadastrdan (`kadastr_birlashtirish.py` natijasi) ekin yerlarga to'rt ustun o'tkaziladi:
+`full_name` (egasi), `tax_number` (INN), `cad_numb` (kadastr raqami), `yer_tur` (yer turi).
+
+**Asosiy qiyinchilik — dala va parsel bir narsa emas.** Ko'p dala bitta parsel ichida to'liq yotadi,
+lekin bir qismi bir nechta parselga bo'lingan, ayrimlari esa ko'p kichik (0.2–0.35 ga) dehqon
+parsellaridan iborat: bitta ekin dalasini bir nechta dehqon ekadi. Bunday dalaga bitta fermer nomini
+yozish xato bo'ladi. Shuning uchun dala parsel bo'yicha emas, **ega bo'yicha** baholanadi.
+
+### Sozlamalar
+
+| O'zgaruvchi | Ma'nosi |
+|---|---|
+| `EKIN_FAYL` / `KADASTR_FAYL` | ekin yerlar va birlashgan kadastr (faqat o'qiladi) |
+| `CHIQISH` / `HISOBOT` | natija shp va Excel hisobot |
+| `E_*` | ekin ustunlari: `unique_id`, `tuman`, `full_name`, `tax_number`, `cad_numb`, `yer_tur` |
+| `K_*` | kadastr ustunlari: `kad_raqam`, `egasi`, `inn`, `jshshir`, `yer_fondi`, `mulk_turi` … |
+| `ZAXIRA_MULK` | zaxira parsellari (`mulk_turi`); aniq egasi bor parsel bilan ust-ust joyi hisobga olinmaydi |
+| `ANIQ` / `ASOSIY` | eng katta ega ulushi chegaralari (standart 0.9 / 0.5) |
+| `MIN_QOPLANISH` | kadastr dalaning shundan kamini qoplasa — tegilmaydi (standart 0.1) |
+| `MAVJUD` | `"almashtir"` — kadastr ustun (eski qiymat hisobotda); `"toldir"` — faqat bo'sh kataklar |
+| `JSHSHIR_INN_ORNIGA` | egasida INN bo'lmasa (jismoniy shaxs) `tax_number` ga JShShIR yozilsinmi |
+| `YER_TURI_MOS` / `MULK_YER_TURI` | kadastr `yer_fondi` (yoki `mulk_turi`) → ekin `yer_tur` moslash jadvali |
+
+### Qoida
+
+1. Har bir dala ichidagi har bir kadastr parselining maydoni hisoblanadi (UTM da).
+2. **Kadastr ust-ustini tozalash** (kadastr fayli o'zgarmaydi): zaxira parseli ("Bo'sh turgan …",
+   egasi hokimiyat) auksion orqali ajratilgan dehqon / fermer parseli bilan ust-ust tushsa, o'sha joy
+   zaxiradan olib tashlanadi — aniq egasi bor parsel ustun.
+3. Parsellar **ega bo'yicha** yig'iladi (INN, bo'lmasa JShShIR, bo'lmasa nom yadrosi): bir egasining
+   bir nechta parseli — bitta ega.
+4. Eng katta eganing dala maydonidagi ulushi bo'yicha holat (`kad_holat`):
+
+   | Eng katta ega ulushi | `kad_holat` | Nima yoziladi |
+   |---|---|---|
+   | ≥ 90% | `aniq` | `full_name`, `tax_number`, `cad_numb`, `yer_tur` |
+   | 50–90% | `asosiy` | xuddi shu + "Ko'rib chiqish" varag'ida |
+   | < 50%, bir nechta ega | `ko'p_ega` | ega yozilmaydi — egalari "Bog'lanish" varag'ida |
+   | < 50%, kadastr dalaning ozgina qismida | `qisman` | ega yozilmaydi |
+   | kadastr < 10% qoplaydi | `yo'q` | tegilmaydi |
+
+   - `cad_numb` — tanlangan eganing dala ichidagi eng katta parseli raqami. Eski raqam `…/RENT-…`
+     bo'lsa va asosi bir xil bo'lsa — eskisi qoladi.
+   - `tax_number` — INN, bo'lmasa JShShIR. Ega o'zgargan-u yangi egasida INN / JShShIR yo'q bo'lsa,
+     eski INN tozalanadi (boshqa odamniki bo'lib qolmasligi uchun).
+   - `yer_tur` — dalaning yarmidan ko'pi bitta toifada bo'lsa (ko'p egali dalada ham), moslash jadvali
+     orqali: masalan "Fermer xo'jaliklariga berilgan yerlar" → "Fermer xo'jaligi", "Dehqon
+     xo'jaliklarining yerlari" → "Dehqon xo'jaligi". Jadvalda yo'q toifaga kadastrdagi nomning o'zi.
+5. Nomlar yumshoq solishtiriladi: «Alijon fermer xo'jaligi», «"Alijon" FX», «АЛИЖОН Ф/Х» — bitta ega.
+   Faqat yozilishi farq qilsa — "ega o'zgardi" deb belgilanmaydi.
+6. Ekin fayli o'zgarmaydi. Natija — yangi shp: hamma ustunlar va geometriya o'sha-o'sha (tekshiriladi),
+   faqat to'rt ustun yangilanadi va `kad_holat`, `kad_ulush` (eng katta ega ulushi), `kad_soni`
+   (dalada ≥ 5% egallagan parsellar), `ega_soni` (≥ 5% egalar) qo'shiladi.
+
+### Excel hisobot
+
+| Varaq | Nima bor |
+|---|---|
+| **Umumiy** | fayllar, CRS; **"Dalaning necha foizi bitta egaga tegishli"** jadvali (holat, dala, maydon, ulush); ustunlar oldin / keyin (to'ldirildi, almashtirildi, tozalandi, bir xil edi); ko'rib chiqish sabablari soni; tekshiruv |
+| **Ko'rib chiqish** | ustuvorlik bo'yicha: ikki ega ust-ust (1), ega o'zgardi (2), ko'p egali (2), eski egasi kadastrda yo'q (3), asosiy ega 50–90% (3), INN / JShShIR yo'q (4) — eski va yangi qiymatlar yonma-yon |
+| **O'zgargan qiymatlar** | har bir almashtirilgan katak: eski → yangi, izoh ("faqat yozilishi" / "boshqa ega", "eski raqam yangilandi" / "boshqa parsel") |
+| **Ko'p egali dalalar** | egalari soni, eng kattalari ulushi bilan |
+| **Bog'lanish** | dala ↔ parsel jadvali: har bir dalaga tegadigan parsel, egasi, INN, JShShIR, dala ichidagi maydon va ulush, tanlangan ega |
+| **Yer turi moslash** | kadastr `yer_fondi` → natijadagi `yer_tur`, qaysi qoida bilan |
+| **Tumanlar** | tuman bo'yicha holatlar soni |
+
+X viloyat misolida: dalalarning ~66% i `aniq`, ~10% i `asosiy`, ~7% i `ko'p_ega` / `qisman`,
+~18% iga kadastr tegmaydi. Ega yozilgan dalalarning deyarli hammasida yozilgan nom, INN va kadastr
+raqami haqiqatan shu dalaga tegadigan parseldan (mustaqil tekshiruv).
 
 > Natijada shaxsiy ma'lumot (JShShIR, F.I.Sh) bor — faylni faqat ichki ishda ishlating.
 
