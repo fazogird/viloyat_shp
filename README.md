@@ -1,6 +1,6 @@
 # viloyat_shp — ekin yerlariga nomenklatura va fermer ma'lumotini o'tkazish
 
-Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). To'rtta skript bor:
+Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). Beshta skript bor:
 
 | Skript | Nima qiladi |
 |---|---|
@@ -8,6 +8,7 @@ Viloyat shp fayllari bilan ishlash (har bir viloyat alohida). To'rtta skript bor
 | [`qoshnidan_toldirish.py`](qoshnidan_toldirish.py) | manbaga tegmagani uchun **bo'sh qolgan** ekin yerlarini yonidagi to'lgan dalalardan to'ldiradi |
 | [`id_boyicha_qoshish.py`](id_boyicha_qoshish.py) | boshqa (yordamchi) fayldan **unique_id bo'yicha** kerakli ustunlarni qo'shadi (masalan `uw3_m3 … uw10_m3`, `uwt_m3`) |
 | [`tuman_boyicha.py`](tuman_boyicha.py) | **tuman chegaralari** bo'yicha har bir dalaga viloyat va tuman kodini beradi (`parent_cod → region_id`, `code → distrct_id`) va nomlarni tekshiradi |
+| [`kadastr_birlashtirish.py`](kadastr_birlashtirish.py) | ikki **kadastr** faylini (yangi, lekin to'liq emas + eski, lekin to'liqroq) bitta to'liq kadastr fayliga birlashtiradi: kadastr raqami, egasi, INN, JShShIR |
 
 Hammasi kirish fayllarini o'zgartirmaydi (fayl xeshi bilan tekshiriladi), natijani yangi shp ga va
 Excel hisobotga yozadi.
@@ -30,6 +31,7 @@ muhit faollashtirilmagan holda ham ishlashi uchun.
 | `qoshnidan_toldirish.py` | 2-qadam: qo'shnidan to'ldirish |
 | `id_boyicha_qoshish.py` | 3-qadam: ID bo'yicha ustun qo'shish |
 | `tuman_boyicha.py` | 4-qadam: tuman chegarasi bo'yicha viloyat / tuman kodi |
+| `kadastr_birlashtirish.py` | kadastr: ikki kadastr faylini birlashtirish (ekin yerlarga bog'lashdan oldin) |
 | `muhit.py` | conda yo'llarini sozlash (numpy dan oldin import qilinadi) |
 | `run.bat` | Windows da ishga tushirish |
 | `environment.yml` | conda muhiti |
@@ -430,6 +432,68 @@ tumanning atributlarini oladi.
 | **Nom farqlari** | ASL dagi nom ↔ chegaradagi nom juftliklari, holati, dalalar soni va maydoni |
 | **Chegaradagi dalalar** | 2+ tumanga tegadigan dalalar: olingan tuman va ulushi, 2-tuman va ulushi |
 | **Tegmaganlar** | hech qaysi tuman ichida bo'lmagan dalalar (bo'lsa) |
+
+---
+
+## Kadastr. `kadastr_birlashtirish.py` — ikki kadastr faylini birlashtirish
+
+Yerning kimga tegishliligi (egasi, INN, JShShIR, kadastr raqami) — suv va soliq hisobi uchun asosiy
+ma'lumot. Odatda ikki fayl bo'ladi:
+
+- **A** — yangi uzkad: egalar ma'lumoti to'liq (jismoniy shaxsda familiya, ism, otasining ismi
+  alohida ustunlarda; INN — yuridik shaxs va fermer xo'jaligida, JShShIR — jismoniy shaxsda), lekin
+  ba'zi parsellar yo'q;
+- **B** — eski fayl: parsellar ko'proq, lekin eski; faqat kadastr raqami va to'liq nom.
+
+### Sozlamalar
+
+| O'zgaruvchi | Ma'nosi |
+|---|---|
+| `A_FAYL` / `B_FAYL` | ikki kadastr shp (faqat o'qiladi) |
+| `CHIQISH` / `HISOBOT` | natija shp va Excel hisobot |
+| `A_*` / `B_*` | ustun nomlari: kadastr raqami, egasi (familiya / ism / otasining ismi), INN, JShShIR, tuman, yer fondi … |
+| `JISMONIY` | jismoniy shaxs turi (shu bilan boshlansa — F.I.Sh birlashtiriladi) |
+| `B_QOPLANISH` | B parsel qo'shiladi, agar A poligonlari uni shundan kam qoplasa (standart 0.1) |
+| `JSHSHIR_YOZ` | JShShIR natijaga yozilsinmi |
+
+### Qoida
+
+1. **Asos — A**: hamma parsellari va hamma ustunlari saqlanadi. Ustiga yagona ustunlar qo'shiladi:
+   `kad_raqam`, `eski_kad`, `egasi` (jismoniy shaxsda familiya + ism + otasining ismi), `egasi_turi`,
+   `inn`, `jshshir`, `viloyat`, `tuman`, `tuman_kod`, `yer_fondi`, `huquq`, `mulk_turi`, `maydon_ga`.
+2. A da geometriyasi yo'q parsel — geometriya B dan (kadastr raqami bir xil). A da egasi bo'sh — B dan.
+3. **B dan faqat A da umuman yo'q parsellar qo'shiladi** (A poligonlari 10% dan kam qoplasa).
+   A bilan qoplangan B parsellari (qayta ro'yxatdan o'tgan, bo'lingan, raqami o'zgargan) qo'shilmaydi —
+   bir yer ikki egaga yozilmasligi uchun; ular hisobotda "eski B raqam → yangi A raqam" bo'lib turadi.
+   Qisman qoplanganlar — "Ko'rib chiqish" ro'yxatida.
+4. **B dan qo'shilganlarga INN / JShShIR:** shu tumanda xuddi shu ega A da bitta INN / JShShIR bilan
+   uchrasa (nom yumshoq solishtiriladi) — o'sha olinadi, `inn_manba = "nom (A)"`.
+5. Buzuq geometriyalar tuzatiladi; takror kadastr raqamlari `takror = 1`; raqami A da eski raqam
+   (`OLDCADNUM`) bo'lgan B parseli `tekshir` ustunida belgilanadi.
+
+### Natijadagi qo'shimcha ustunlar
+
+| Ustun | Ma'nosi |
+|---|---|
+| `manba` | `A`, `A, geometriya B`, `A, egasi B`, `B (eski)` |
+| `inn_manba` | `A` yoki `nom (A)` (B dan qo'shilganda nom bo'yicha topilgan) |
+| `b_egasi` / `ega_ozgar` | B dagi egasi; kadastr raqami bir xil-u egasi boshqa bo'lsa `ha` (yangi egaga o'tgan) |
+| `takror` | kadastr raqami takrorlanadi |
+| `tekshir` | ko'rib chiqish kerak bo'lgan sabab |
+
+### Excel hisobot
+
+| Varaq | Nima bor |
+|---|---|
+| **Umumiy** | kirish (A, B, umumiy / faqat A / faqat B), natija (manbalar, egasi / INN / JShShIR bor), tekshiruv |
+| **Tumanlar**, **Ega turlari**, **Manbalar** | soni, maydoni, INN / JShShIR bor, egasi o'zgargan |
+| **Qayta ro'yxat** | A bilan qoplangan B parsellari: eski B raqam → yangi A raqam(lar) |
+| **Ko'rib chiqish** | qisman qoplangan B parsellari |
+| **B dan qo'shildi** | A da yo'q, B dan qo'shilgan parsellar, topilgan INN / JShShIR |
+| **Egasi farqli** | kadastr raqami bir xil, egasi A va B da boshqa |
+| **Takrorlar** | takror kadastr raqamlari |
+
+> Natijada shaxsiy ma'lumot (JShShIR, F.I.Sh) bor — faylni faqat ichki ishda ishlating.
 
 ---
 
